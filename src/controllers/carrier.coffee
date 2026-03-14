@@ -7,24 +7,21 @@ _carrierFactory = new CarrierFactory()
 
 tokenCache = { token: null, expires: 0 }
 
-httpsPost = (hostname, path, headers, body, callback) ->
-  data = JSON.stringify body
-  options =
-    hostname: hostname
-    path: path
-    method: 'POST'
-    headers: Object.assign {}, headers,
-      'Content-Length': Buffer.byteLength data
+httpsRequest = (options, body, callback) ->
+  data = if body then JSON.stringify(body) else null
+  if data
+    options.headers['Content-Length'] = Buffer.byteLength data
   req = https.request options, (res) ->
     chunks = []
     res.on 'data', (chunk) -> chunks.push chunk
     res.on 'end', ->
+      raw = Buffer.concat(chunks).toString()
       try
-        callback null, JSON.parse Buffer.concat(chunks).toString()
+        callback null, JSON.parse(raw), res.statusCode
       catch e
-        callback 'Failed to parse response'
+        callback null, {raw_response: raw, status: res.statusCode}, res.statusCode
   req.on 'error', (e) -> callback e.message
-  req.write data
+  if data then req.write data
   req.end()
 
 getAccessToken = (callback) ->
@@ -38,22 +35,31 @@ getAccessToken = (callback) ->
     grant_type: 'client_credentials'
     client_id: clientId
     client_secret: clientSecret
-  httpsPost 'apis.usps.com', '/oauth2/v3/token', {'Content-Type': 'application/json'}, body, (err, data) ->
+  options =
+    hostname: 'apis.usps.com'
+    path: '/oauth2/v3/token'
+    method: 'POST'
+    headers: 'Content-Type': 'application/json'
+  httpsRequest options, body, (err, data, status) ->
     return callback(err) if err
     if data.access_token
       tokenCache.token = data.access_token
       tokenCache.expires = now + (data.expires_in * 1000) - 60000
       callback null, data.access_token
     else
-      callback data.error_description or data.error or 'Token failed'
+      callback JSON.stringify(data)
 
 trackUSPS = (trackingNumber, callback) ->
   getAccessToken (err, accessToken) ->
     return callback(err) if err
-    headers =
-      'Authorization': "Bearer #{accessToken}"
-      'Content-Type': 'application/json'
-    httpsPost 'apis.usps.com', '/tracking', headers, [{trackingNumber: trackingNumber}], (err, data) ->
+    options =
+      hostname: 'apis.usps.com'
+      path: "/tracking/v3/tracking/#{trackingNumber}"
+      method: 'GET'
+      headers:
+        'Authorization': "Bearer #{accessToken}"
+        'Content-Type': 'application/json'
+    httpsRequest options, null, (err, data, status) ->
       return callback(err) if err
       callback null, data
 
