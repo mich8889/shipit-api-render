@@ -17,9 +17,12 @@ httpsRequest = (options, body, callback) ->
     res.on 'end', ->
       raw = Buffer.concat(chunks).toString()
       try
-        callback null, JSON.parse(raw), res.statusCode
+        callback null, JSON.parse(raw.trim()), res.statusCode
       catch e
-        callback null, {raw_response: raw, status: res.statusCode}, res.statusCode
+        try
+          callback null, JSON.parse(raw.trim().replace(/\n/g, ' ')), res.statusCode
+        catch e2
+          callback null, {raw_response: raw, status: res.statusCode}, res.statusCode
   req.on 'error', (e) -> callback e.message
   if data then req.write data
   req.end()
